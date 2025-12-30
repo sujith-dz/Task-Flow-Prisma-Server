@@ -64,7 +64,7 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
       },
     });
   }
-
+  // console.log(tasks, '--------------tasks fetched')
   res.json({
     success: true,
     data: tasks,
@@ -166,7 +166,7 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
         },
       },
     });
-
+    console.log(task, '------------task created')
     res.status(201).json({
       success: true,
       message: 'Task created successfully',
