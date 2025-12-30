@@ -114,57 +114,67 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
 });
 
 export const createTask = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
+  try {
 
-  const { title, description, assigneeId, status }: CreateTaskInput = req.body;
 
-  if (!title) {
-    throw new AppError('Title is required', 400);
-  }
-
-  // If assigneeId is provided, verify the user exists
-  if (assigneeId) {
-    const assignee = await prisma.user.findUnique({
-      where: { id: assigneeId },
-    });
-    if (!assignee) {
-      throw new AppError('Assignee not found', 404);
+    if (!req.user) {
+      throw new AppError('User not authenticated', 401);
     }
+    console.log(req.body, '---------------req.body')
+
+    const { title, description, assigneeId, status }: CreateTaskInput = req.body;
+
+    const assignerId = req.user.userId;
+
+    if (!title) {
+      throw new AppError('Title is required', 400);
+    }
+    console.log(status, '---------status')
+    // If assigneeId is provided, verify the user exists
+    if (assigneeId) {
+      const assignee = await prisma.user.findUnique({
+        where: { id: assigneeId },
+      });
+      if (!assignee) {
+        throw new AppError('Assignee not found', 404);
+      }
+    }
+    const role = req.user.role;
+    const task = await prisma.task.create({
+      data: {
+        title,
+        description,
+        assignerId: req.user.userId,
+        // assigneeId: role === Role.USER ? assigneeId : role,
+        assigneeId: req.user.userId,
+        status: TaskStatus.TODO,
+      },
+      include: {
+        assigner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        assignee: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Task created successfully',
+      data: task,
+    });
+  } catch (error: any) {
+    console.log(error.message, '------------task creating error')
   }
-
-  const task = await prisma.task.create({
-    data: {
-      title,
-      description,
-      assignerId: req.user.userId,
-      assigneeId: assigneeId || null,
-      status: status || TaskStatus.PENDING,
-    },
-    include: {
-      assigner: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
-      assignee: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
-    },
-  });
-
-  res.status(201).json({
-    success: true,
-    message: 'Task created successfully',
-    data: task,
-  });
 });
 
 export const updateTask = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {

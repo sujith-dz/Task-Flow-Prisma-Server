@@ -1,10 +1,19 @@
 import dotenv from 'dotenv';
 import app from './app';
 import prisma from './config/database';
+import cors from 'cors';
 
 dotenv.config();
 
 const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(
+  cors({
+    origin: 'http://localhost:5173', // Vite dev server default port
+    credentials: true,
+  })
+);
 
 const startServer = async () => {
   try {
@@ -14,8 +23,7 @@ const startServer = async () => {
 
     // Start server
     app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-      console.log(`Health check: http://localhost:${PORT}/health`);
+      console.log(`✅ Server is running on port ${PORT}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);

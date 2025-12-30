@@ -84,15 +84,15 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
   res.json({
     success: true,
     message: 'Login successful',
-    data: {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
-      token,
+
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
     },
+    token,
+
   });
 });
 
