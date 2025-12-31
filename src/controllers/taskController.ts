@@ -9,8 +9,13 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
     throw new AppError('User not authenticated', 401);
   }
 
-  // Get priority filter from query parameters
+  // Get query parameters
   const priorityFilter = req.query.priority as Priority | undefined;
+  const sortBy = req.query.sortBy as string | undefined;
+  const sortOrder = req.query.sortOrder as 'asc' | 'desc' | undefined;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 10;
+  const skip = (page - 1) * limit;
   
   // Validate priority if provided
   if (priorityFilter && !Object.values(Priority).includes(priorityFilter)) {
@@ -21,7 +26,6 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
 
   if (req.user.role === Role.ADMIN) {
     // Admins can see all tasks
-    // Add priority filter if provided
     if (priorityFilter) {
       whereClause.priority = priorityFilter;
     }
@@ -31,15 +35,48 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
       { assignerId: req.user.userId },
       { assigneeId: req.user.userId },
     ];
-    // Add priority filter if provided
     if (priorityFilter) {
       whereClause.priority = priorityFilter;
     }
   }
 
+  // Build orderBy clause
+  let orderBy: any[] = [];
+  if (sortBy) {
+    const validSortFields = ['createdAt', 'dueDate', 'priority', 'status', 'title'];
+    if (validSortFields.includes(sortBy)) {
+      const order = sortOrder === 'asc' ? 'asc' : 'desc';
+      orderBy.push({ [sortBy]: order });
+    }
+  }
+  
+  // Default sorting if no sortBy provided
+  if (orderBy.length === 0) {
+    orderBy = [
+      { priority: 'desc' },
+      { createdAt: 'desc' },
+    ];
+  }
+
+  // Get total count for pagination
+  const total = await prisma.task.count({ where: whereClause });
+
   const tasks = await prisma.task.findMany({
     where: whereClause,
-    include: {
+    skip,
+    take: limit,
+    orderBy,
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      status: true,
+      priority: true,
+      assignerId: true,
+      assigneeId: true,
+      dueDate: true,
+      createdAt: true,
+      updatedAt: true,
       assigner: {
         select: {
           id: true,
@@ -56,15 +93,17 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
         },
       },
     },
-    orderBy: [
-      { priority: 'desc' }, // High priority first
-      { createdAt: 'desc' },
-    ],
   });
 
   res.json({
     success: true,
     data: tasks,
+    meta: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
   });
 });
 
