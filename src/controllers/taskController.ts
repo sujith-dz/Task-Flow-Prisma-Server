@@ -11,6 +11,9 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
 
   // Get query parameters
   const priorityFilter = req.query.priority as Priority | undefined;
+  const statusFilter = req.query.status as TaskStatus | undefined;
+  const assignerIdFilter = req.query.assignerId as string | undefined;
+  const createdByRole = req.query.createdByRole as 'ADMIN' | 'USER' | undefined;
   const sortBy = req.query.sortBy as string | undefined;
   const sortOrder = req.query.sortOrder as 'asc' | 'desc' | undefined;
   const page = parseInt(req.query.page as string) || 1;
@@ -22,21 +25,52 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
     throw new AppError('Invalid priority value. Must be LOW, MEDIUM, or HIGH', 400);
   }
 
-  let whereClause: any = {};
+  // Validate status if provided
+  if (statusFilter && !Object.values(TaskStatus).includes(statusFilter)) {
+    throw new AppError('Invalid status value. Must be TODO, PENDING, or COMPLETED', 400);
+  }
+
+  let whereClause: any = {
+    isDeleted: false, // Exclude deleted tasks by default
+  };
 
   if (req.user.role === Role.ADMIN) {
     // Admins can see all tasks
     if (priorityFilter) {
       whereClause.priority = priorityFilter;
     }
+    if (statusFilter) {
+      whereClause.status = statusFilter;
+    }
+    if (assignerIdFilter) {
+      whereClause.assignerId = assignerIdFilter;
+    }
+    // Filter by assigner role (ADMIN or USER)
+    if (createdByRole) {
+      whereClause.assigner = {
+        role: createdByRole,
+      };
+    }
   } else {
     // Regular users can only see tasks they created or are assigned to
-    whereClause.OR = [
-      { assignerId: req.user.userId },
-      { assigneeId: req.user.userId },
+    whereClause.AND = [
+      { isDeleted: false }, // Exclude deleted tasks
+      {
+        OR: [
+          { assignerId: req.user.userId },
+          { assigneeId: req.user.userId },
+        ],
+      },
     ];
     if (priorityFilter) {
-      whereClause.priority = priorityFilter;
+      whereClause.AND.push({ priority: priorityFilter });
+    }
+    if (statusFilter) {
+      whereClause.AND.push({ status: statusFilter });
+    }
+    if (assignerIdFilter) {
+      // For users, only allow filtering by their own assignerId or tasks assigned to them
+      whereClause.AND.push({ assignerId: assignerIdFilter });
     }
   }
 
@@ -114,9 +148,22 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
 
   const { id } = req.params;
 
-  const task = await prisma.task.findUnique({
-    where: { id },
-    include: {
+  const task = await prisma.task.findFirst({
+    where: { 
+      id,
+      isDeleted: false, // Exclude deleted tasks
+    },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      status: true,
+      priority: true,
+      assignerId: true,
+      assigneeId: true,
+      dueDate: true,
+      createdAt: true,
+      updatedAt: true,
       assigner: {
         select: {
           id: true,
@@ -207,6 +254,7 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
       assigneeId: finalAssigneeId,
       status: status || TaskStatus.TODO,
       priority: taskPriority,
+      isDeleted: false, // Explicitly set to false (default, but explicit for clarity)
     },
     include: {
       assigner: {
@@ -242,8 +290,11 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
   const { id } = req.params;
   const { title, description, assigneeId, status, priority }: UpdateTaskInput = req.body;
 
-  const task = await prisma.task.findUnique({
-    where: { id },
+  const task = await prisma.task.findFirst({
+    where: { 
+      id,
+      isDeleted: false, // Only find non-deleted tasks
+    },
   });
 
   if (!task) {
@@ -334,8 +385,11 @@ export const deleteTask = asyncHandler(async (req: RequestWithUser, res: Respons
 
   const { id } = req.params;
 
-  const task = await prisma.task.findUnique({
-    where: { id },
+  const task = await prisma.task.findFirst({
+    where: { 
+      id,
+      isDeleted: false, // Only find non-deleted tasks
+    },
   });
 
   if (!task) {
@@ -347,8 +401,10 @@ export const deleteTask = asyncHandler(async (req: RequestWithUser, res: Respons
     throw new AppError('You do not have permission to delete this task', 403);
   }
 
-  await prisma.task.delete({
+  // Soft delete: set isDeleted to true instead of actually deleting
+  await prisma.task.update({
     where: { id },
+    data: { isDeleted: true },
   });
 
   res.json({
