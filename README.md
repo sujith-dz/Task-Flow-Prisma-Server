@@ -73,13 +73,24 @@ npm start
 
 ### Authentication Routes
 
-- `POST /api/auth/register` - Register a new user
+**User Authentication:**
+- `POST /auth/signup` - Register a new user (creates USER role)
   - Body: `{ "email": "user@example.com", "password": "password123", "name": "John Doe" }`
   - Returns: User object and JWT token
 
-- `POST /api/auth/login` - Login
+- `POST /auth/login` - User login
   - Body: `{ "email": "user@example.com", "password": "password123" }`
   - Returns: User object and JWT token
+
+**Admin Authentication:**
+- `POST /auth/admin/signup` - Register a new admin (creates ADMIN role)
+  - Body: `{ "email": "admin@example.com", "password": "password123", "name": "Admin Name" }`
+  - Returns: Admin user object and JWT token
+
+- `POST /auth/admin/login` - Admin login (only works for ADMIN role users)
+  - Body: `{ "email": "admin@example.com", "password": "password123" }`
+  - Returns: Admin user object and JWT token
+  - Note: Will reject users with USER role
 
 ### User Routes (Protected - Requires JWT)
 
@@ -97,14 +108,25 @@ npm start
 
 ### Task Routes (Protected - Requires JWT)
 
-- `GET /api/tasks` - Get all tasks (users see their tasks, admins see all)
-- `GET /api/tasks/:id` - Get task by ID
-- `POST /api/tasks` - Create a new task
-  - Body: `{ "title": "Task Title", "description": "Task description", "assigneeId": "user-uuid", "status": "PENDING" }`
-  - Status options: `PENDING`, `IN_PROGRESS`, `COMPLETED`
-- `PUT /api/tasks/:id` - Update task (only assigner or admin can update)
-  - Body: `{ "title": "New Title", "description": "New description", "assigneeId": "user-uuid", "status": "IN_PROGRESS" }` (all fields optional)
-- `DELETE /api/tasks/:id` - Delete task (only assigner or admin can delete)
+- `GET /tasks` - Get all tasks (users see their tasks, admins see all)
+  - Query parameters: `?priority=LOW|MEDIUM|HIGH` (optional filter by priority)
+  - Tasks are sorted by priority (HIGH first) then by creation date
+
+- `GET /tasks/:id` - Get task by ID
+
+- `POST /tasks` - Create a new task
+  - Body: `{ "title": "Task Title", "description": "Task description", "assigneeId": "user-uuid", "status": "TODO", "priority": "HIGH" }`
+  - Status options: `TODO`, `PENDING`, `COMPLETED`
+  - Priority options: `LOW`, `MEDIUM`, `HIGH` (defaults to `MEDIUM` if not provided)
+  - **Admin**: Can assign task to any user via `assigneeId`
+  - **Regular User**: Can only assign to themselves or leave unassigned (will auto-assign to themselves)
+
+- `PUT /tasks/:id` - Update task (only assigner or admin can update)
+  - Body: `{ "title": "New Title", "description": "New description", "assigneeId": "user-uuid", "status": "PENDING", "priority": "LOW" }` (all fields optional)
+  - **Admin**: Can update any task and assign to any user
+  - **Regular User**: Can only update their own tasks and assign to themselves
+
+- `DELETE /tasks/:id` - Delete task (only assigner or admin can delete)
 
 ## Authentication
 
@@ -128,11 +150,12 @@ Authorization: Bearer <your-jwt-token>
 - `id`: UUID (primary key)
 - `title`: String
 - `description`: String (optional)
-- `status`: Enum (PENDING | IN_PROGRESS | COMPLETED)
+- `status`: Enum (`TODO` | `PENDING` | `COMPLETED`) - defaults to `TODO`
+- `priority`: Enum (`LOW` | `MEDIUM` | `HIGH`) - defaults to `MEDIUM`
 - `assignerId`: UUID (foreign key to User - who created/assigned the task)
 - `assigneeId`: UUID (foreign key to User, optional - who receives the task)
 - `createdAt`: DateTime
-- `updatedAt`: DateTime
+- `updatedAt`: DateTime (auto-updated)
 
 ## Security Features
 

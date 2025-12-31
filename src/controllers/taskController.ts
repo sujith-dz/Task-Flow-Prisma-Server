@@ -2,69 +2,66 @@ import { Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { RequestWithUser, CreateTaskInput, UpdateTaskInput } from '../types';
 import { AppError, asyncHandler } from '../utils/errorHandler';
-import { Role, TaskStatus } from '@prisma/client';
+import { Role, TaskStatus, Priority } from '@prisma/client';
 
 export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
   }
 
-  let tasks;
+  // Get priority filter from query parameters
+  const priorityFilter = req.query.priority as Priority | undefined;
+  
+  // Validate priority if provided
+  if (priorityFilter && !Object.values(Priority).includes(priorityFilter)) {
+    throw new AppError('Invalid priority value. Must be LOW, MEDIUM, or HIGH', 400);
+  }
+
+  let whereClause: any = {};
 
   if (req.user.role === Role.ADMIN) {
     // Admins can see all tasks
-    tasks = await prisma.task.findMany({
-      include: {
-        assigner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    // Add priority filter if provided
+    if (priorityFilter) {
+      whereClause.priority = priorityFilter;
+    }
   } else {
     // Regular users can only see tasks they created or are assigned to
-    tasks = await prisma.task.findMany({
-      where: {
-        OR: [
-          { assignerId: req.user.userId },
-          { assigneeId: req.user.userId },
-        ],
-      },
-      include: {
-        assigner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    whereClause.OR = [
+      { assignerId: req.user.userId },
+      { assigneeId: req.user.userId },
+    ];
+    // Add priority filter if provided
+    if (priorityFilter) {
+      whereClause.priority = priorityFilter;
+    }
   }
-  // console.log(tasks, '--------------tasks fetched')
+
+  const tasks = await prisma.task.findMany({
+    where: whereClause,
+    include: {
+      assigner: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+      assignee: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+    orderBy: [
+      { priority: 'desc' }, // High priority first
+      { createdAt: 'desc' },
+    ],
+  });
+
   res.json({
     success: true,
     data: tasks,
@@ -86,6 +83,7 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
           id: true,
           name: true,
           email: true,
+          role: true,
         },
       },
       assignee: {
@@ -114,67 +112,87 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
 });
 
 export const createTask = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
-  try {
-
-
-    if (!req.user) {
-      throw new AppError('User not authenticated', 401);
-    }
-    console.log(req.body, '---------------req.body')
-
-    const { title, description, assigneeId, status }: CreateTaskInput = req.body;
-
-    const assignerId = req.user.userId;
-
-    if (!title) {
-      throw new AppError('Title is required', 400);
-    }
-    console.log(status, '---------status')
-    // If assigneeId is provided, verify the user exists
-    if (assigneeId) {
-      const assignee = await prisma.user.findUnique({
-        where: { id: assigneeId },
-      });
-      if (!assignee) {
-        throw new AppError('Assignee not found', 404);
-      }
-    }
-    const role = req.user.role;
-    const task = await prisma.task.create({
-      data: {
-        title,
-        description,
-        assignerId: req.user.userId,
-        // assigneeId: role === Role.USER ? assigneeId : role,
-        assigneeId: req.user.userId,
-        status: TaskStatus.TODO,
-      },
-      include: {
-        assigner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    });
-    console.log(task, '------------task created')
-    res.status(201).json({
-      success: true,
-      message: 'Task created successfully',
-      data: task,
-    });
-  } catch (error: any) {
-    console.log(error.message, '------------task creating error')
+  if (!req.user) {
+    throw new AppError('User not authenticated', 401);
   }
+
+  const { title, description, assigneeId, status, priority }: CreateTaskInput = req.body;
+
+  if (!title) {
+    throw new AppError('Title is required', 400);
+  }
+
+  // Validate priority if provided
+  let taskPriority: Priority = Priority.MEDIUM; // Default priority
+  if (priority) {
+    if (!Object.values(Priority).includes(priority)) {
+      throw new AppError('Invalid priority value. Must be LOW, MEDIUM, or HIGH', 400);
+    }
+    taskPriority = priority;
+  }
+
+  // Handle assigneeId based on user role
+  let finalAssigneeId: string | null = null;
+
+  if (assigneeId) {
+    // Verify the assignee user exists
+    const assignee = await prisma.user.findUnique({
+      where: { id: assigneeId },
+    });
+    if (!assignee) {
+      throw new AppError('Assignee not found', 404);
+    }
+
+    // Admin can assign to any user, regular users can only assign to themselves
+    if (req.user.role === Role.ADMIN) {
+      finalAssigneeId = assigneeId;
+    } else {
+      // Regular users can only assign to themselves
+      if (assigneeId !== req.user.userId) {
+        throw new AppError('You can only assign tasks to yourself', 403);
+      }
+      finalAssigneeId = req.user.userId;
+    }
+  } else {
+    // If no assigneeId provided and user is not admin, assign to themselves
+    if (req.user.role !== Role.ADMIN) {
+      finalAssigneeId = req.user.userId;
+    }
+  }
+
+  const task = await prisma.task.create({
+    data: {
+      title,
+      description,
+      assignerId: req.user.userId,
+      assigneeId: finalAssigneeId,
+      status: status || TaskStatus.TODO,
+      priority: taskPriority,
+    },
+    include: {
+      assigner: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+      assignee: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Task created successfully',
+    data: task,
+  });
 });
 
 export const updateTask = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
@@ -183,7 +201,7 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
   }
 
   const { id } = req.params;
-  const { title, description, assigneeId, status }: UpdateTaskInput = req.body;
+  const { title, description, assigneeId, status, priority }: UpdateTaskInput = req.body;
 
   const task = await prisma.task.findUnique({
     where: { id },
@@ -193,8 +211,12 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
     throw new AppError('Task not found', 404);
   }
 
-  // Check if user has permission to update this task (only assigner or admin)
-  if (req.user.role !== Role.ADMIN && task.assignerId !== req.user.userId) {
+  // Check if user has permission to update this task
+  // Users can update tasks they created OR tasks assigned to them
+  // Admins can update any task
+  if (req.user.role !== Role.ADMIN && 
+      task.assignerId !== req.user.userId && 
+      task.assigneeId !== req.user.userId) {
     throw new AppError('You do not have permission to update this task', 403);
   }
 
@@ -211,9 +233,30 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
   const updateData: any = {};
   if (title !== undefined) updateData.title = title;
   if (description !== undefined) updateData.description = description;
-  if (assigneeId !== undefined) updateData.assigneeId = assigneeId || null;
-  if (status && Object.values(TaskStatus).includes(status)) {
-    updateData.status = status;
+  if (assigneeId !== undefined) {
+    // Admin can assign to any user, regular users can only assign to themselves
+    if (req.user.role === Role.ADMIN) {
+      updateData.assigneeId = assigneeId || null;
+    } else {
+      // Regular users can only assign to themselves
+      if (assigneeId && assigneeId !== req.user.userId) {
+        throw new AppError('You can only assign tasks to yourself', 403);
+      }
+      updateData.assigneeId = assigneeId || req.user.userId;
+    }
+  }
+  if (status !== undefined && status !== null) {
+    if (Object.values(TaskStatus).includes(status)) {
+      updateData.status = status;
+    } else {
+      throw new AppError('Invalid status value. Must be TODO, PENDING, or COMPLETED', 400);
+    }
+  }
+  if (priority !== undefined) {
+    if (!Object.values(Priority).includes(priority)) {
+      throw new AppError('Invalid priority value. Must be LOW, MEDIUM, or HIGH', 400);
+    }
+    updateData.priority = priority;
   }
 
   const updatedTask = await prisma.task.update({
@@ -225,6 +268,7 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
           id: true,
           name: true,
           email: true,
+          role: true,
         },
       },
       assignee: {

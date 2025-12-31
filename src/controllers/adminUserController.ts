@@ -12,6 +12,7 @@ export const getAllUsers = asyncHandler(async (req: RequestWithUser, res: Respon
       email: true,
       name: true,
       role: true,
+      isActive: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -36,6 +37,7 @@ export const getUserById = asyncHandler(async (req: RequestWithUser, res: Respon
       email: true,
       name: true,
       role: true,
+      isActive: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -90,6 +92,7 @@ export const updateUser = asyncHandler(async (req: RequestWithUser, res: Respons
       email: true,
       name: true,
       role: true,
+      isActive: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -124,6 +127,78 @@ export const deleteUser = asyncHandler(async (req: RequestWithUser, res: Respons
   res.json({
     success: true,
     message: 'User deleted successfully',
+  });
+});
+
+export const activateUser = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+  });
+
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  if (req.user && req.user.userId === id) {
+    throw new AppError('You cannot deactivate your own account', 400);
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+    data: { isActive: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  res.json({
+    success: true,
+    message: 'User activated successfully',
+    data: updatedUser,
+  });
+});
+
+export const deactivateUser = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+  });
+
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  if (req.user && req.user.userId === id) {
+    throw new AppError('You cannot deactivate your own account', 400);
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+    data: { isActive: false },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  res.json({
+    success: true,
+    message: 'User deactivated successfully',
+    data: updatedUser,
   });
 });
 

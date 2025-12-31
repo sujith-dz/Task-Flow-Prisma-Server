@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Role, TaskStatus } from '@prisma/client';
+import { Role, TaskStatus, Priority } from '@prisma/client';
 
 export interface JWTPayload {
   userId: string;
@@ -27,6 +27,7 @@ export interface CreateTaskInput {
   description?: string;
   assigneeId?: string;
   status?: TaskStatus;
+  priority?: Priority;
 }
 
 export interface UpdateTaskInput {
@@ -34,6 +35,7 @@ export interface UpdateTaskInput {
   description?: string;
   assigneeId?: string;
   status?: TaskStatus;
+  priority?: Priority;
 }
 
 export interface UpdateUserInput {

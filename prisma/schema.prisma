@@ -21,6 +21,12 @@ enum TaskStatus {
   COMPLETED
 }
 
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 
 model User {
   id            String   @id @default(uuid())
@@ -28,6 +34,7 @@ model User {
   password      String
   name          String
   role          Role     @default(USER)
+  isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -44,7 +51,8 @@ model Task {
   id          String     @id @default(uuid())
   title       String
   description String?
-  status TaskStatus @default(TODO)
+  status      TaskStatus @default(TODO)
+  priority    Priority   @default(MEDIUM)
   assignerId  String
   assigneeId  String?
   createdAt   DateTime   @default(now())
