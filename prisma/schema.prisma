@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,6 +5,39 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password      String
+  name          String
+  role          Role     @default(USER)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  isActive      Boolean  @default(true)
+  assignedTasks Task[]   @relation("TaskAssignee")
+  createdTasks  Task[]   @relation("TaskAssigner")
+
+  @@map("users")
+}
+
+model Task {
+  id           String     @id @default(uuid())
+  title        String
+  description  String?
+  status       TaskStatus @default(TODO)
+  assignerId   String
+  assigneeId   String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  priority     Priority   @default(MEDIUM)
+  dueDate      DateTime?
+  isDeleted    Boolean    @default(false)
+  assignee     User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  assigner     User       @relation("TaskAssigner", fields: [assignerId], references: [id], onDelete: Cascade)
+
+  @@map("tasks")
 }
 
 enum Role {
@@ -26,43 +56,3 @@ enum Priority {
   MEDIUM
   HIGH
 }
-
-
-model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  password      String
-  name          String
-  role          Role     @default(USER)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Tasks created by this user (as assigner)
-  createdTasks  Task[]   @relation("TaskAssigner")
-
-  // Tasks assigned to this user (as assignee)
-  assignedTasks Task[]   @relation("TaskAssignee")
-
-  @@map("users")
-}
-
-model Task {
-  id          String     @id @default(uuid())
-  title       String
-  description String?
-  status      TaskStatus @default(TODO)
-  priority    Priority   @default(MEDIUM)
-  assignerId  String
-  assigneeId  String?
-  dueDate     DateTime?
-  isDeleted   Boolean    @default(false)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  assigner    User       @relation("TaskAssigner", fields: [assignerId], references: [id], onDelete: Cascade)
-  assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-
-  @@map("tasks")
-}
-
