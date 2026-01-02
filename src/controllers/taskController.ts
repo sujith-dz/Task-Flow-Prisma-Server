@@ -129,6 +129,19 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
           },
         },
       },
+      documents: {
+        select: {
+          id: true,
+          fileName: true,
+          fileUrl: true,
+          fileSize: true,
+          mimeType: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      },
     },
   });
 
@@ -189,6 +202,19 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
               email: true,
             },
           },
+        },
+      },
+      documents: {
+        select: {
+          id: true,
+          fileName: true,
+          fileUrl: true,
+          fileSize: true,
+          mimeType: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
         },
       },
     },
