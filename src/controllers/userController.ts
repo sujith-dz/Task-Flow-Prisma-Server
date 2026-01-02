@@ -25,9 +25,11 @@ export const getProfile = asyncHandler(async (req: RequestWithUser, res: Respons
     throw new AppError('User not found', 404);
   }
 
+  // Support both 'data' and 'user' response formats for compatibility
   res.json({
     success: true,
     data: user,
+    user: user, // Also include 'user' for frontend compatibility
   });
 });
 

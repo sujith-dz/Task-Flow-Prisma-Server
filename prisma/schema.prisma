@@ -16,9 +16,13 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   isActive      Boolean  @default(true)
-  assignedTasks Task[]   @relation("TaskAssignee")
+  assignedTasks TaskAssignee[]
   createdTasks  Task[]   @relation("TaskAssigner")
 
+  // Indexes for common queries
+  @@index([role, isActive]) // For admin filtering by role and active status
+  @@index([isActive]) // For filtering active users
+  @@index([role]) // For role-based queries
   @@map("users")
 }
 
@@ -28,16 +32,43 @@ model Task {
   description  String?
   status       TaskStatus @default(TODO)
   assignerId   String
-  assigneeId   String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   priority     Priority   @default(MEDIUM)
   dueDate      DateTime?
   isDeleted    Boolean    @default(false)
-  assignee     User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   assigner     User       @relation("TaskAssigner", fields: [assignerId], references: [id], onDelete: Cascade)
+  assignees    TaskAssignee[]
 
+  // Indexes for common query patterns
+  @@index([isDeleted, assignerId]) // For user's own tasks (most common query)
+  @@index([isDeleted, status]) // For filtering by status
+  @@index([isDeleted, priority]) // For filtering by priority
+  @@index([isDeleted, dueDate]) // For sorting and filtering by due date
+  @@index([isDeleted, createdAt]) // For sorting by creation date
+  @@index([isDeleted, assignerId, status]) // Composite for user dashboard with status filter
+  @@index([isDeleted, assignerId, priority]) // Composite for user dashboard with priority filter
+  @@index([assignerId]) // For finding tasks by creator
+  @@index([status]) // For status-based analytics
+  @@index([priority]) // For priority-based analytics
+  @@index([dueDate]) // For due date sorting and filtering
+  @@index([createdAt]) // For creation date sorting
   @@map("tasks")
+}
+
+model TaskAssignee {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes for common queries
+  @@index([userId]) // For finding all tasks assigned to a user (user dashboard)
+  @@index([taskId]) // For finding all assignees of a task
+  @@unique([taskId, userId])
+  @@map("task_assignees")
 }
 
 enum Role {

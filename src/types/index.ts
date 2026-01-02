@@ -25,22 +25,34 @@ export interface LoginInput {
 export interface CreateTaskInput {
   title: string;
   description?: string;
-  assigneeId?: string;
+  assigneeId?: string; // For backward compatibility
+  assigneeIds?: string[]; // New: array of assignee IDs
   status?: TaskStatus;
   priority?: Priority;
+  dueDate?: string | Date;
 }
 
 export interface UpdateTaskInput {
   title?: string;
   description?: string;
-  assigneeId?: string;
+  assigneeId?: string; // For backward compatibility
+  assigneeIds?: string[]; // New: array of assignee IDs
   status?: TaskStatus;
   priority?: Priority;
+  dueDate?: string | Date | null;
 }
 
 export interface UpdateUserInput {
   name?: string;
   email?: string;
   password?: string;
+}
+
+export interface BulkUserInput {
+  email: string;
+  password: string;
+  name: string;
+  role?: Role;
+  isActive?: boolean;
 }
 

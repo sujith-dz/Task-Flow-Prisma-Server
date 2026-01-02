@@ -8,6 +8,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/profile', getProfile);
+router.get('/me', getProfile); // Alias for /profile, commonly used endpoint
 router.put('/profile', updateProfile);
 
 export default router;

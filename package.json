@@ -9,7 +9,9 @@
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "update-tasks-due-date": "ts-node scripts/update-tasks-due-date.ts",
+    "migrate-assignees": "ts-node scripts/migrate-to-multiple-assignees.ts"
   },
   "keywords": [
     "express",

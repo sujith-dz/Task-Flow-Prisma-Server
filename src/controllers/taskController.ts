@@ -58,7 +58,7 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
       {
         OR: [
           { assignerId: req.user.userId },
-          { assigneeId: req.user.userId },
+          { assignees: { some: { userId: req.user.userId } } },
         ],
       },
     ];
@@ -107,7 +107,6 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
       status: true,
       priority: true,
       assignerId: true,
-      assigneeId: true,
       dueDate: true,
       createdAt: true,
       updatedAt: true,
@@ -119,19 +118,29 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
           role: true,
         },
       },
-      assignee: {
+      assignees: {
         select: {
-          id: true,
-          name: true,
-          email: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       },
     },
   });
 
+  // Transform tasks to include assignees array in a more convenient format
+  const transformedTasks = tasks.map((task: any) => ({
+    ...task,
+    assignees: task.assignees.map((ta: any) => ta.user),
+  }));
+
   res.json({
     success: true,
-    data: tasks,
+    data: transformedTasks,
     meta: {
       total,
       page,
@@ -160,7 +169,6 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
       status: true,
       priority: true,
       assignerId: true,
-      assigneeId: true,
       dueDate: true,
       createdAt: true,
       updatedAt: true,
@@ -172,11 +180,15 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
           role: true,
         },
       },
-      assignee: {
+      assignees: {
         select: {
-          id: true,
-          name: true,
-          email: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       },
     },
@@ -187,13 +199,20 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
   }
 
   // Check if user has permission to view this task
-  if (req.user.role !== Role.ADMIN && task.assignerId !== req.user.userId && task.assigneeId !== req.user.userId) {
+  const isAssignee = task.assignees.some((ta: any) => ta.user.id === req.user!.userId);
+  if (req.user!.role !== Role.ADMIN && task.assignerId !== req.user!.userId && !isAssignee) {
     throw new AppError('You do not have permission to view this task', 403);
   }
 
+  // Transform task to include assignees array
+  const transformedTask = {
+    ...task,
+    assignees: task.assignees.map((ta: any) => ta.user),
+  };
+
   res.json({
     success: true,
-    data: task,
+    data: transformedTask,
   });
 });
 
@@ -202,7 +221,7 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
     throw new AppError('User not authenticated', 401);
   }
 
-  const { title, description, assigneeId, status, priority }: CreateTaskInput = req.body;
+  const { title, description, assigneeId, assigneeIds, status, priority, dueDate }: CreateTaskInput = req.body;
 
   if (!title) {
     throw new AppError('Title is required', 400);
@@ -217,32 +236,45 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
     taskPriority = priority;
   }
 
-  // Handle assigneeId based on user role
-  let finalAssigneeId: string | null = null;
+  // Handle assigneeIds - support both single assigneeId (backward compatibility) and assigneeIds array
+  let finalAssigneeIds: string[] = [];
 
-  if (assigneeId) {
-    // Verify the assignee user exists
-    const assignee = await prisma.user.findUnique({
-      where: { id: assigneeId },
+  // Use assigneeIds array if provided, otherwise fall back to assigneeId
+  const assigneeIdsToProcess = assigneeIds || (assigneeId ? [assigneeId] : []);
+
+  if (assigneeIdsToProcess.length > 0) {
+    // Verify all assignee users exist
+    const assignees = await prisma.user.findMany({
+      where: { id: { in: assigneeIdsToProcess } },
     });
-    if (!assignee) {
-      throw new AppError('Assignee not found', 404);
+
+    if (assignees.length !== assigneeIdsToProcess.length) {
+      throw new AppError('One or more assignees not found', 404);
     }
 
     // Admin can assign to any user, regular users can only assign to themselves
     if (req.user.role === Role.ADMIN) {
-      finalAssigneeId = assigneeId;
+      finalAssigneeIds = assigneeIdsToProcess;
     } else {
       // Regular users can only assign to themselves
-      if (assigneeId !== req.user.userId) {
+      if (assigneeIdsToProcess.some((id: string) => id !== req.user!.userId)) {
         throw new AppError('You can only assign tasks to yourself', 403);
       }
-      finalAssigneeId = req.user.userId;
+      finalAssigneeIds = [req.user!.userId];
     }
   } else {
-    // If no assigneeId provided and user is not admin, assign to themselves
-    if (req.user.role !== Role.ADMIN) {
-      finalAssigneeId = req.user.userId;
+    // If no assigneeIds provided and user is not admin, assign to themselves
+    if (req.user!.role !== Role.ADMIN) {
+      finalAssigneeIds = [req.user!.userId];
+    }
+  }
+
+  // Parse dueDate if provided
+  let parsedDueDate: Date | null = null;
+  if (dueDate) {
+    parsedDueDate = dueDate instanceof Date ? dueDate : new Date(dueDate);
+    if (isNaN(parsedDueDate.getTime())) {
+      throw new AppError('Invalid due date format', 400);
     }
   }
 
@@ -251,10 +283,15 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
       title,
       description,
       assignerId: req.user.userId,
-      assigneeId: finalAssigneeId,
       status: status || TaskStatus.TODO,
       priority: taskPriority,
+      dueDate: parsedDueDate,
       isDeleted: false, // Explicitly set to false (default, but explicit for clarity)
+      assignees: {
+        create: finalAssigneeIds.map(userId => ({
+          userId,
+        })),
+      },
     },
     include: {
       assigner: {
@@ -265,20 +302,30 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
           role: true,
         },
       },
-      assignee: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
+      assignees: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       },
     },
   });
 
+  // Transform task to include assignees array
+  const transformedTask = {
+    ...task,
+    assignees: task.assignees.map((ta: any) => ta.user),
+  };
+
   res.status(201).json({
     success: true,
     message: 'Task created successfully',
-    data: task,
+    data: transformedTask,
   });
 });
 
@@ -288,12 +335,19 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
   }
 
   const { id } = req.params;
-  const { title, description, assigneeId, status, priority }: UpdateTaskInput = req.body;
+  const { title, description, assigneeId, assigneeIds, status, priority, dueDate }: UpdateTaskInput = req.body;
 
   const task = await prisma.task.findFirst({
     where: { 
       id,
       isDeleted: false, // Only find non-deleted tasks
+    },
+    include: {
+      assignees: {
+        select: {
+          userId: true,
+        },
+      },
     },
   });
 
@@ -304,35 +358,61 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
   // Check if user has permission to update this task
   // Users can update tasks they created OR tasks assigned to them
   // Admins can update any task
-  if (req.user.role !== Role.ADMIN && 
-      task.assignerId !== req.user.userId && 
-      task.assigneeId !== req.user.userId) {
+  const isAssignee = task.assignees.some((ta: any) => ta.userId === req.user!.userId);
+  if (req.user!.role !== Role.ADMIN && 
+      task.assignerId !== req.user!.userId && 
+      !isAssignee) {
     throw new AppError('You do not have permission to update this task', 403);
-  }
-
-  // If assigneeId is provided, verify the user exists
-  if (assigneeId) {
-    const assignee = await prisma.user.findUnique({
-      where: { id: assigneeId },
-    });
-    if (!assignee) {
-      throw new AppError('Assignee not found', 404);
-    }
   }
 
   const updateData: any = {};
   if (title !== undefined) updateData.title = title;
   if (description !== undefined) updateData.description = description;
-  if (assigneeId !== undefined) {
-    // Admin can assign to any user, regular users can only assign to themselves
-    if (req.user.role === Role.ADMIN) {
-      updateData.assigneeId = assigneeId || null;
-    } else {
-      // Regular users can only assign to themselves
-      if (assigneeId && assigneeId !== req.user.userId) {
-        throw new AppError('You can only assign tasks to yourself', 403);
+  
+  // Handle assigneeIds update - support both single assigneeId (backward compatibility) and assigneeIds array
+  if (assigneeIds !== undefined || assigneeId !== undefined) {
+    const assigneeIdsToProcess = assigneeIds || (assigneeId !== undefined ? (assigneeId ? [assigneeId] : []) : undefined);
+    
+    if (assigneeIdsToProcess !== undefined) {
+      if (assigneeIdsToProcess.length > 0) {
+        // Verify all assignee users exist
+        const assignees = await prisma.user.findMany({
+          where: { id: { in: assigneeIdsToProcess } },
+        });
+
+        if (assignees.length !== assigneeIdsToProcess.length) {
+          throw new AppError('One or more assignees not found', 404);
+        }
+
+        // Admin can assign to any user, regular users can only assign to themselves
+        if (req.user.role === Role.ADMIN) {
+          // Delete existing assignees and create new ones
+          await prisma.taskAssignee.deleteMany({
+            where: { taskId: id },
+          });
+          updateData.assignees = {
+            create: assigneeIdsToProcess.map((userId: string) => ({
+              userId,
+            })),
+          };
+        } else {
+          // Regular users can only assign to themselves
+          if (assigneeIdsToProcess.some((id: string) => id !== req.user!.userId)) {
+            throw new AppError('You can only assign tasks to yourself', 403);
+          }
+          await prisma.taskAssignee.deleteMany({
+            where: { taskId: id },
+          });
+          updateData.assignees = {
+            create: [{ userId: req.user!.userId }],
+          };
+        }
+      } else {
+        // Empty array - remove all assignees
+        await prisma.taskAssignee.deleteMany({
+          where: { taskId: id },
+        });
       }
-      updateData.assigneeId = assigneeId || req.user.userId;
     }
   }
   if (status !== undefined && status !== null) {
@@ -348,6 +428,17 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
     }
     updateData.priority = priority;
   }
+  if (dueDate !== undefined) {
+    if (dueDate === null) {
+      updateData.dueDate = null;
+    } else {
+      const parsedDueDate = dueDate instanceof Date ? dueDate : new Date(dueDate);
+      if (isNaN(parsedDueDate.getTime())) {
+        throw new AppError('Invalid due date format', 400);
+      }
+      updateData.dueDate = parsedDueDate;
+    }
+  }
 
   const updatedTask = await prisma.task.update({
     where: { id },
@@ -361,20 +452,30 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
           role: true,
         },
       },
-      assignee: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
+      assignees: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       },
     },
   });
 
+    // Transform task to include assignees array
+    const transformedTask = {
+      ...updatedTask,
+      assignees: updatedTask.assignees.map((ta: any) => ta.user),
+    };
+
   res.json({
     success: true,
     message: 'Task updated successfully',
-    data: updatedTask,
+    data: transformedTask,
   });
 });
 
@@ -402,10 +503,10 @@ export const deleteTask = asyncHandler(async (req: RequestWithUser, res: Respons
   }
 
   // Soft delete: set isDeleted to true instead of actually deleting
-  await prisma.task.update({
-    where: { id },
-    data: { isDeleted: true },
-  });
+    await prisma.task.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
 
   res.json({
     success: true,

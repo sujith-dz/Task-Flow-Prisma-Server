@@ -1,6 +1,7 @@
 import express, { Application } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import path from 'path';
 
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
@@ -8,7 +9,10 @@ import adminRoutes from './routes/admin';
 import taskRoutes from './routes/tasks';
 import { errorHandler } from './utils/errorHandler';
 
-dotenv.config();
+// Load .env file from the project root (Task-Flow-Prisma-Server directory)
+// Handle both development (src/) and production (dist/) paths
+const envPath = path.resolve(__dirname, '../.env');
+dotenv.config({ path: envPath });
 
 const app: Application = express();
 
@@ -21,13 +25,44 @@ app.use(express.urlencoded({ extended: true }));
 /* ======================
    CORS Configuration
 ====================== */
+// Build allowed origins array - CLIENT_URL is optional
+const allowedOrigins: string[] = [
+  'http://localhost:5173',
+  'https://taskflawappnow.netlify.app',
+  process.env.CLIENT_URL,
+].filter((origin): origin is string => Boolean(origin));
+
+// Log environment variables for debugging (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  console.log('Environment variables loaded:');
+  console.log('CLIENT_URL:', process.env.CLIENT_URL || '(not set)');
+  console.log('Allowed origins:', allowedOrigins);
+}
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, Postman, or curl)
+      if (!origin) return callback(null, true);
+      
+      // Allow if origin is in the allowed list
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        // Log for debugging (only in development)
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`CORS blocked origin: ${origin}`);
+        }
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
   })
 );
+
+
 
 /* ======================
    Health Check

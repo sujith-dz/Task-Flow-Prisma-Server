@@ -10,6 +10,7 @@ import {
   deleteUser,
   activateUser,
   deactivateUser,
+  createBulkUsers,
 } from '../controllers/adminUserController';
 import { authenticate } from '../middleware/auth';
 import { requireAdmin } from '../middleware/role';
@@ -31,6 +32,7 @@ router.use(authenticate);
 router.use(requireAdmin);
 
 router.get('/users', getAllUsers);
+router.post('/users/bulk', createBulkUsers);
 router.get('/users/:id', getUserById);
 router.put('/users/:id', updateUser);
 router.delete('/users/:id', deleteUser);
