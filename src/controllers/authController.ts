@@ -57,7 +57,7 @@ export const register = asyncHandler(async (req: Request, res: Response, next: N
 
 export const login = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { email, password }: LoginInput = req.body;
-
+  console.log(email, password, '---------------email and password');
   if (!email || !password) {
     throw new AppError('Email and password are required', 400);
   }
