@@ -9,6 +9,7 @@ import {
 import {
   uploadTaskDocument,
   deleteTaskDocument,
+  downloadTaskDocument,
 } from '../controllers/taskDocumentController';
 import { documentUpload } from '../middleware/documentUpload';
 
@@ -29,6 +30,7 @@ router.post(
   documentUpload.array('documents', 10),
   uploadTaskDocument
 );
+router.get('/documents/:documentId/download', downloadTaskDocument);
 router.delete('/documents/:documentId', deleteTaskDocument);
 
 export default router;

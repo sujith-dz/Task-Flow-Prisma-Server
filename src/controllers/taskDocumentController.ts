@@ -3,6 +3,8 @@ import cloudinary from '../config/cloudinary';
 import prisma from '../config/database';
 import { AppError, asyncHandler } from '../utils/errorHandler';
 import { RequestWithUser } from '../types';
+import https from 'https';
+import http from 'http';
 
 export const uploadTaskDocument = asyncHandler(
   async (req: RequestWithUser, res: Response, _next: NextFunction) => {
@@ -85,7 +87,7 @@ export const uploadTaskDocument = asyncHandler(
               use_filename: true,
               unique_filename: true,
             },
-            (error, uploadResult) => {
+            (error: any, uploadResult: any) => {
               if (error) reject(error);
               else resolve(uploadResult);
             }
@@ -219,7 +221,7 @@ export const deleteTaskDocument = asyncHandler(
           cloudinary.uploader.destroy(
             publicId,
             { resource_type: 'auto' },
-            (error) => {
+            (error: any) => {
               if (error) {
                 console.warn(
                   'Failed to delete document from Cloudinary:',
@@ -244,3 +246,107 @@ export const deleteTaskDocument = asyncHandler(
   }
 );
 
+export const downloadTaskDocument = asyncHandler(
+  async (req: RequestWithUser, res: Response, _next: NextFunction) => {
+    if (!req.user) {
+      throw new AppError('User not authenticated', 401);
+    }
+
+    const { documentId } = req.params;
+
+    const document = await prisma.taskDocument.findUnique({
+      where: { id: documentId },
+      include: {
+        task: {
+          select: {
+            id: true,
+            assignerId: true,
+            assignees: { select: { userId: true } },
+          },
+        },
+      },
+    });
+
+    if (!document) {
+      throw new AppError('Document not found', 404);
+    }
+
+    // Check permissions
+    const isAssigner = document.task.assignerId === req.user.userId;
+    const isAssignee = document.task.assignees.some(
+      (ta) => ta.userId === req.user!.userId
+    );
+    const isAdmin = req.user.role === 'ADMIN';
+
+    if (!isAssigner && !isAssignee && !isAdmin) {
+      throw new AppError(
+        'You do not have permission to download this document',
+        403
+      );
+    }
+
+    // Get file from Cloudinary
+    try {
+      // Fetch the file from Cloudinary URL
+      const fileUrl = new URL(document.fileUrl);
+      const protocol = fileUrl.protocol === 'https:' ? https : http;
+
+      const fileData = await new Promise<Buffer>((resolve, reject) => {
+        protocol.get(document.fileUrl, (response) => {
+          if (response.statusCode !== 200) {
+            reject(new Error(`Failed to fetch file: ${response.statusCode}`));
+            return;
+          }
+
+          const chunks: Buffer[] = [];
+          response.on('data', (chunk) => chunks.push(chunk));
+          response.on('end', () => resolve(Buffer.concat(chunks)));
+          response.on('error', reject);
+        });
+      });
+
+      // Set headers for proper file download with correct MIME type and filename
+      const mimeType = document.mimeType || 'application/octet-stream';
+      let fileName = document.fileName || 'document';
+      
+      // Ensure filename has the correct extension based on mimeType if missing
+      if (!fileName.includes('.')) {
+        const extensionMap: { [key: string]: string } = {
+          'application/pdf': '.pdf',
+          'application/msword': '.doc',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+          'application/vnd.ms-excel': '.xls',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+          'application/vnd.ms-powerpoint': '.ppt',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+          'text/plain': '.txt',
+          'text/csv': '.csv',
+          'image/jpeg': '.jpg',
+          'image/png': '.png',
+          'image/gif': '.gif',
+        };
+        
+        const extension = extensionMap[mimeType] || '';
+        if (extension) {
+          fileName = fileName + extension;
+        }
+      }
+
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(fileName)}"`
+      );
+      res.setHeader('Content-Length', fileData.length.toString());
+
+      // Send the file
+      res.send(fileData);
+    } catch (error: any) {
+      console.error('Error downloading document:', error);
+      throw new AppError(
+        'Failed to download document: ' + (error.message || 'Unknown error'),
+        500
+      );
+    }
+  }
+);

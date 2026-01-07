@@ -27,7 +27,7 @@ export const uploadImage = asyncHandler(
       try {
         const publicId = `task-flow/users/user-${userId}`;
         await new Promise<void>((resolve) => {
-          cloudinary.uploader.destroy(publicId, (error) => {
+          cloudinary.uploader.destroy(publicId, (error: any) => {
             if (error) {
               console.warn(
                 'Failed to delete previous image from Cloudinary:',
@@ -59,7 +59,7 @@ export const uploadImage = asyncHandler(
               { quality: 'auto', fetch_format: 'auto' },
             ],
           },
-          (error, uploadResult) => {
+          (error: any, uploadResult: any) => {
             if (error) {
               reject(error);
             } else {

@@ -9,7 +9,7 @@ const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
     cb(null, true);
   } else {
     const error = new Error('Only image files are allowed!');
-    cb(error, false);
+    cb(error);
   }
 };
 
