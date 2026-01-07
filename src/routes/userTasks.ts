@@ -7,13 +7,12 @@ import {
   deleteTask,
 } from '../controllers/taskController';
 import { uploadTaskDocument, deleteTaskDocument } from '../controllers/taskDocumentController';
-import { authenticate } from '../middleware/auth';
 import { documentUpload } from '../middleware/documentUpload';
 
 const router = Router();
 
-// All task routes require authentication
-router.use(authenticate);
+// Middleware (authenticate) is already applied in parent route (users.ts)
+// All routes here are automatically protected
 
 router.get('/', getAllTasks);
 router.get('/:id', getTaskById);
@@ -26,4 +25,3 @@ router.post('/documents', documentUpload.array('documents', 10), uploadTaskDocum
 router.delete('/documents/:documentId', deleteTaskDocument);
 
 export default router;
-

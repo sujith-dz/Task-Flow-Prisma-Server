@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
 import prisma from '../config/database';
-import { RequestWithUser, CreateTaskInput, UpdateTaskInput } from '../types';
+import { RequestWithUser, CreateTaskInput, UpdateTaskInput, DragDropTaskInput } from '../types';
 import { AppError, asyncHandler } from '../utils/errorHandler';
 import { Role, TaskStatus, Priority } from '@prisma/client';
 
@@ -19,7 +19,7 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 10;
   const skip = (page - 1) * limit;
-  
+
   // Validate priority if provided
   if (priorityFilter && !Object.values(Priority).includes(priorityFilter)) {
     throw new AppError('Invalid priority value. Must be LOW, MEDIUM, or HIGH', 400);
@@ -83,7 +83,7 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
       orderBy.push({ [sortBy]: order });
     }
   }
-  
+
   // Default sorting if no sortBy provided
   if (orderBy.length === 0) {
     orderBy = [
@@ -171,7 +171,7 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
   const { id } = req.params;
 
   const task = await prisma.task.findFirst({
-    where: { 
+    where: {
       id,
       isDeleted: false, // Exclude deleted tasks
     },
@@ -364,7 +364,7 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
   const { title, description, assigneeId, assigneeIds, status, priority, dueDate }: UpdateTaskInput = req.body;
 
   const task = await prisma.task.findFirst({
-    where: { 
+    where: {
       id,
       isDeleted: false, // Only find non-deleted tasks
     },
@@ -385,20 +385,20 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
   // Users can update tasks they created OR tasks assigned to them
   // Admins can update any task
   const isAssignee = task.assignees.some((ta: any) => ta.userId === req.user!.userId);
-  if (req.user!.role !== Role.ADMIN && 
-      task.assignerId !== req.user!.userId && 
-      !isAssignee) {
+  if (req.user!.role !== Role.ADMIN &&
+    task.assignerId !== req.user!.userId &&
+    !isAssignee) {
     throw new AppError('You do not have permission to update this task', 403);
   }
 
   const updateData: any = {};
   if (title !== undefined) updateData.title = title;
   if (description !== undefined) updateData.description = description;
-  
+
   // Handle assigneeIds update - support both single assigneeId (backward compatibility) and assigneeIds array
   if (assigneeIds !== undefined || assigneeId !== undefined) {
     const assigneeIdsToProcess = assigneeIds || (assigneeId !== undefined ? (assigneeId ? [assigneeId] : []) : undefined);
-    
+
     if (assigneeIdsToProcess !== undefined) {
       if (assigneeIdsToProcess.length > 0) {
         // Verify all assignee users exist
@@ -492,11 +492,132 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
     },
   });
 
-    // Transform task to include assignees array
-    const transformedTask = {
-      ...updatedTask,
-      assignees: updatedTask.assignees.map((ta: any) => ta.user),
-    };
+  // Transform task to include assignees array
+  const transformedTask = {
+    ...updatedTask,
+    assignees: updatedTask.assignees.map((ta: any) => ta.user),
+  };
+
+  res.json({
+    success: true,
+    message: 'Task updated successfully',
+    data: transformedTask,
+  });
+});
+
+export const updateTaskDragDrop = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    throw new AppError('User not authenticated', 401);
+  }
+
+  const { id } = req.params;
+  const { assigneeIds, status }: DragDropTaskInput = req.body;
+
+  // Validate status is provided
+  if (!status) {
+    throw new AppError('Status is required for drag-and-drop updates', 400);
+  }
+
+  // Validate status value
+  if (!Object.values(TaskStatus).includes(status)) {
+    throw new AppError('Invalid status value. Must be TODO, PENDING, or COMPLETED', 400);
+  }
+
+  const task = await prisma.task.findFirst({
+    where: {
+      id,
+      isDeleted: false,
+    },
+    include: {
+      assignees: {
+        select: {
+          userId: true,
+        },
+      },
+    },
+  });
+
+  if (!task) {
+    throw new AppError('Task not found', 404);
+  }
+
+  // Check if user has permission to update this task
+  const isAssignee = task.assignees.some((ta: any) => ta.userId === req.user!.userId);
+  const canUpdate = req.user!.role === Role.ADMIN || task.assignerId === req.user!.userId || isAssignee;
+  
+  if (!canUpdate) {
+    throw new AppError('You do not have permission to update this task', 403);
+  }
+
+  const updateData: any = {
+    status,
+  };
+
+  // Handle assigneeIds update if provided (for reassignment)
+  if (assigneeIds !== undefined) {
+    // Only admins can reassign tasks via drag-and-drop
+    if (req.user.role !== Role.ADMIN) {
+      throw new AppError('Only admins can reassign tasks', 403);
+    }
+
+    if (assigneeIds.length > 0) {
+      // Verify all assignee users exist
+      const assignees = await prisma.user.findMany({
+        where: { id: { in: assigneeIds } },
+      });
+
+      if (assignees.length !== assigneeIds.length) {
+        throw new AppError('One or more assignees not found', 404);
+      }
+
+      // Delete existing assignees and create new ones
+      await prisma.taskAssignee.deleteMany({
+        where: { taskId: id },
+      });
+      updateData.assignees = {
+        create: assigneeIds.map((userId: string) => ({
+          userId,
+        })),
+      };
+    } else {
+      // Empty array - remove all assignees
+      await prisma.taskAssignee.deleteMany({
+        where: { taskId: id },
+      });
+    }
+  }
+
+  const updatedTask = await prisma.task.update({
+    where: { id },
+    data: updateData,
+    include: {
+      assigner: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+      assignees: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // Transform task to include assignees array
+  const transformedTask = {
+    ...updatedTask,
+    assignees: updatedTask.assignees.map((ta: any) => ta.user),
+  };
 
   res.json({
     success: true,
@@ -513,7 +634,7 @@ export const deleteTask = asyncHandler(async (req: RequestWithUser, res: Respons
   const { id } = req.params;
 
   const task = await prisma.task.findFirst({
-    where: { 
+    where: {
       id,
       isDeleted: false, // Only find non-deleted tasks
     },
@@ -529,10 +650,10 @@ export const deleteTask = asyncHandler(async (req: RequestWithUser, res: Respons
   }
 
   // Soft delete: set isDeleted to true instead of actually deleting
-    await prisma.task.update({
-      where: { id },
-      data: { isDeleted: true },
-    });
+  await prisma.task.update({
+    where: { id },
+    data: { isDeleted: true },
+  });
 
   res.json({
     success: true,
