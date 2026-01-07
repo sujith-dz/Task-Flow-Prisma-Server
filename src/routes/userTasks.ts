@@ -6,7 +6,11 @@ import {
   updateTask,
   deleteTask,
 } from '../controllers/taskController';
-import { uploadTaskDocument, deleteTaskDocument } from '../controllers/taskDocumentController';
+import {
+  uploadTaskDocument,
+  deleteTaskDocument,
+  downloadTaskDocument,
+} from '../controllers/taskDocumentController';
 import { documentUpload } from '../middleware/documentUpload';
 
 const router = Router();
@@ -21,7 +25,12 @@ router.put('/:id', updateTask);
 router.delete('/:id', deleteTask);
 
 // Document routes (must be before /:id route to avoid conflicts)
-router.post('/documents', documentUpload.array('documents', 10), uploadTaskDocument);
+router.post(
+  '/documents',
+  documentUpload.array('documents', 10),
+  uploadTaskDocument
+);
+router.get('/documents/:documentId/download', downloadTaskDocument);
 router.delete('/documents/:documentId', deleteTaskDocument);
 
 export default router;

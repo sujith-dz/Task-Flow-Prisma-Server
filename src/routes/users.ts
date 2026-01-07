@@ -15,5 +15,9 @@ router.get('/me', getProfile); // Alias for /profile, commonly used endpoint
 router.put('/profile', updateProfile);
 router.post('/upload-image', upload.single('image'), uploadImage);
 
-export default router;
+// User task routes (protected by authentication)
+// These routes are accessible to all authenticated users (both USER and ADMIN roles)
+// Permission checks are handled in the controllers
+router.use('/tasks', userTaskRoutes);
 
+export default router;
