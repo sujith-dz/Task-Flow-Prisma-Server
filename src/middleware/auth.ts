@@ -17,7 +17,6 @@ export const authenticate = (
 
     const token = authHeader.substring(7);
     const decoded = AuthService.verifyToken(token);
-    // console.log(decoded,'...................decoded')
 
     req.user = decoded;
     next();

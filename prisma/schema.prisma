@@ -12,6 +12,7 @@ model User {
   email         String   @unique
   password      String
   name          String
+  imageUrl      String?
   role          Role     @default(USER)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -29,7 +30,7 @@ model User {
 model Task {
   id           String     @id @default(uuid())
   title        String
-  description  String?
+  description   String?
   status       TaskStatus @default(TODO)
   assignerId   String
   createdAt    DateTime   @default(now())
@@ -39,6 +40,7 @@ model Task {
   isDeleted    Boolean    @default(false)
   assigner     User       @relation("TaskAssigner", fields: [assignerId], references: [id], onDelete: Cascade)
   assignees    TaskAssignee[]
+  documents    TaskDocument[]
 
   // Indexes for common query patterns
   @@index([isDeleted, assignerId]) // For user's own tasks (most common query)
@@ -69,6 +71,21 @@ model TaskAssignee {
   @@index([taskId]) // For finding all assignees of a task
   @@unique([taskId, userId])
   @@map("task_assignees")
+}
+
+model TaskDocument {
+  id          String   @id @default(uuid())
+  taskId      String
+  fileName    String
+  fileUrl     String
+  fileSize    Int?     // File size in bytes
+  mimeType    String?  // MIME type of the file
+  uploadedBy  String   // User ID who uploaded the document
+  createdAt   DateTime @default(now())
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId]) // For finding all documents of a task
+  @@map("task_documents")
 }
 
 enum Role {

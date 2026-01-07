@@ -33,6 +33,7 @@ export const register = asyncHandler(async (req: Request, res: Response, next: N
       id: true,
       email: true,
       name: true,
+      imageUrl: true,
       role: true,
       createdAt: true,
     },
@@ -56,7 +57,7 @@ export const register = asyncHandler(async (req: Request, res: Response, next: N
 
 export const login = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { email, password }: LoginInput = req.body;
-
+  console.log(email, password, '---------------email and password');
   if (!email || !password) {
     throw new AppError('Email and password are required', 400);
   }
@@ -93,6 +94,7 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
       id: user.id,
       email: user.email,
       name: user.name,
+      imageUrl: user.imageUrl,
       role: user.role,
     },
     token,

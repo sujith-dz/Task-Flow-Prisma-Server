@@ -25,8 +25,8 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
   if (allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    const error = new Error('File type not allowed. Allowed types: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, CSV, and images');
-    cb(error);
+    const error: Error = new Error('File type not allowed. Allowed types: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, CSV, and images');
+    cb(error as any, false);
   }
 };
 
@@ -38,3 +38,4 @@ export const documentUpload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB limit for documents
   },
 });
+

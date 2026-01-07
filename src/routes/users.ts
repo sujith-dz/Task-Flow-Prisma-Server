@@ -3,7 +3,6 @@ import { getProfile, updateProfile } from '../controllers/userController';
 import { uploadImage } from '../controllers/uploadController';
 import { authenticate } from '../middleware/auth';
 import { upload } from '../middleware/upload';
-import userTaskRoutes from './userTasks';
 
 const router = Router();
 

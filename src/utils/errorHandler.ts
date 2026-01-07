@@ -18,6 +18,37 @@ export const errorHandler = (
   res: Response,
   next: NextFunction
 ) => {
+  // #region agent log
+  console.log('[ERROR HANDLER]', {
+    error: err.message,
+    name: err.name,
+    origin: req.headers.origin || 'none',
+    method: req.method,
+    path: req.path
+  });
+  // #endregion
+
+  // Ensure CORS headers are set even on error responses
+  const origin = req.headers.origin;
+  if (origin) {
+    // Check if origin is allowed (same logic as CORS middleware)
+    const normalizedOrigin = origin.toLowerCase().replace(/\/$/, '');
+    const isNetlify = normalizedOrigin.includes('.netlify.app');
+    const allowedOrigins = [
+      "https://taskflowappnow.netlify.app",
+      'http://localhost:5173',
+      process.env.CLIENT_URL,
+    ].filter((o): o is string => Boolean(o));
+    const isAllowed = allowedOrigins.some(allowed => 
+      allowed.toLowerCase().replace(/\/$/, '') === normalizedOrigin
+    );
+    
+    if (isAllowed || isNetlify) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+  }
+
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
       success: false,
