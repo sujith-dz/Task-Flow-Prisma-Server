@@ -6,7 +6,6 @@ import path from 'path';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import adminRoutes from './routes/admin';
-import taskRoutes from './routes/tasks';
 import { errorHandler } from './utils/errorHandler';
 
 // Load .env file from the project root (Task-Flow-Prisma-Server directory)
@@ -74,10 +73,17 @@ app.get('/health', (_req, res) => {
 /* ======================
    Routes
 ====================== */
+// Auth routes (public)
 app.use('/auth', authRoutes);
+
+// User routes (protected - requires authentication)
+// Includes: /users/profile, /users/tasks/*
 app.use('/users', userRoutes);
+
+// Admin routes (protected - requires authentication + admin role)
+// Includes: /admin/users/*, /admin/tasks/*
 app.use('/admin', adminRoutes);
-app.use('/tasks', taskRoutes);
+
 
 /* ======================
    404 Handler

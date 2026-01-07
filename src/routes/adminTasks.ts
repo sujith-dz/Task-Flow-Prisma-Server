@@ -5,19 +5,19 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  updateTaskDragDrop,
 } from '../controllers/taskController';
-import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
-// All task routes require authentication
-router.use(authenticate);
+// Middleware (authenticate + requireAdmin) is already applied in parent route (admin.ts)
+// All routes here are automatically protected and admin-only
 
 router.get('/', getAllTasks);
 router.get('/:id', getTaskById);
 router.post('/', createTask);
 router.put('/:id', updateTask);
 router.delete('/:id', deleteTask);
+router.patch('/:id/drag-drop', updateTaskDragDrop);
 
 export default router;
-

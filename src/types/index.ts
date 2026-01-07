@@ -42,6 +42,11 @@ export interface UpdateTaskInput {
   dueDate?: string | Date | null;
 }
 
+export interface DragDropTaskInput {
+  assigneeIds?: string[]; // Array of assignee IDs for reassignment
+  status: TaskStatus; // Status is required for drag-and-drop
+}
+
 export interface UpdateUserInput {
   name?: string;
   email?: string;
