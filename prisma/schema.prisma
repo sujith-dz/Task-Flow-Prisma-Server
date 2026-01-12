@@ -13,17 +13,20 @@ model User {
   password      String
   name          String
   imageUrl      String?
-  role          Role     @default(USER)
+  roleId        String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   isActive      Boolean  @default(true)
+  
+  // Relations
+  role          Role     @relation(fields: [roleId], references: [id])
   assignedTasks TaskAssignee[]
   createdTasks  Task[]   @relation("TaskAssigner")
 
   // Indexes for common queries
-  @@index([role, isActive]) // For admin filtering by role and active status
+  @@index([roleId, isActive]) // For admin filtering by role and active status
   @@index([isActive]) // For filtering active users
-  @@index([role]) // For role-based queries
+  @@index([roleId]) // For role-based queries
   @@map("users")
 }
 
@@ -40,7 +43,7 @@ model Task {
   isDeleted    Boolean    @default(false)
   assigner     User       @relation("TaskAssigner", fields: [assignerId], references: [id], onDelete: Cascade)
   assignees    TaskAssignee[]
-  documents    TaskDocument[]
+  documents    TaskDocumentMapping[]
 
   // Indexes for common query patterns
   @@index([isDeleted, assignerId]) // For user's own tasks (most common query)
@@ -73,24 +76,95 @@ model TaskAssignee {
   @@map("task_assignees")
 }
 
-model TaskDocument {
+// Roles table
+model Role {
   id          String   @id @default(uuid())
-  taskId      String
+  name        String   @unique  // e.g., "USER", "ADMIN", "MANAGER"
+  displayName String   // e.g., "User", "Administrator", "Manager"
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  users       User[]
+  permissions RolePermission[]
+  
+  @@index([name])
+  @@index([isActive])
+  @@map("roles")
+}
+
+// Permissions table
+model Permission {
+  id          String   @id @default(uuid())
+  name        String   @unique  // e.g., "tasks:create", "tasks:edit", "users:delete"
+  displayName String   // e.g., "Create Task", "Edit Task", "Delete User"
+  description String?
+  category    String   // e.g., "tasks", "users", "documents", "admin"
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  roles       RolePermission[]
+  
+  @@index([category])
+  @@index([name])
+  @@index([isActive])
+  @@map("permissions")
+}
+
+// Role-Permission mapping table
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+  
+  // Relations
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// Document table (separated from task for optimization)
+model Document {
+  id          String   @id @default(uuid())
   fileName    String
   fileUrl     String
   fileSize    Int?     // File size in bytes
   mimeType    String?  // MIME type of the file
   uploadedBy  String   // User ID who uploaded the document
   createdAt   DateTime @default(now())
-  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@index([taskId]) // For finding all documents of a task
-  @@map("task_documents")
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  tasks       TaskDocumentMapping[]
+  
+  @@index([uploadedBy])
+  @@map("documents")
 }
 
-enum Role {
-  USER
-  ADMIN
+// Task-Document mapping table (optimized structure)
+model TaskDocumentMapping {
+  id         String   @id @default(uuid())
+  taskId     String
+  documentId String
+  createdAt  DateTime @default(now())
+  
+  // Relations
+  task     Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  @@unique([taskId, documentId])
+  @@index([taskId])
+  @@index([documentId])
+  @@map("task_document_mappings")
 }
 
 enum TaskStatus {

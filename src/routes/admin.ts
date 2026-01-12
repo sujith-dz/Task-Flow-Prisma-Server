@@ -14,7 +14,7 @@ import {
 } from '../controllers/adminUserController';
 import adminTaskRoutes from './adminTasks';
 import { authenticate } from '../middleware/auth';
-import { requireAdmin } from '../middleware/role';
+import { requireAdmin, requirePermission } from '../middleware/role';
 
 const router = Router();
 
@@ -32,14 +32,14 @@ router.post('/login', adminLogin);
 router.use(authenticate);
 router.use(requireAdmin);
 
-// Admin user management routes
-router.get('/users', getAllUsers);
-router.post('/users/bulk', createBulkUsers);
-router.get('/users/:id', getUserById);
-router.put('/users/:id', updateUser);
-router.delete('/users/:id', deleteUser);
-router.patch('/users/:id/activate', activateUser);
-router.patch('/users/:id/deactivate', deactivateUser);
+// Admin user management routes (with permission checks)
+router.get('/users', requirePermission('users:view'), getAllUsers);
+router.post('/users/bulk', requirePermission('users:create'), createBulkUsers);
+router.get('/users/:id', requirePermission('users:view'), getUserById);
+router.put('/users/:id', requirePermission('users:edit'), updateUser);
+router.delete('/users/:id', requirePermission('users:delete'), deleteUser);
+router.patch('/users/:id/activate', requirePermission('users:edit'), activateUser);
+router.patch('/users/:id/deactivate', requirePermission('users:edit'), deactivateUser);
 
 // Admin task routes (admin-only access)
 // Admins can access all task endpoints with full permissions

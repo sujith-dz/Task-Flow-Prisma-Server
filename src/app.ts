@@ -6,6 +6,8 @@ import path from 'path';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import adminRoutes from './routes/admin';
+import roleRoutes from './routes/roles';
+import permissionRoutes from './routes/permissions';
 import { errorHandler } from './utils/errorHandler';
 
 // Load .env file from the project root (Task-Flow-Prisma-Server directory)
@@ -79,6 +81,10 @@ app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 
 app.use('/admin', adminRoutes);
+
+// Role and Permission management routes (admin only)
+app.use('/admin/roles', roleRoutes);
+app.use('/admin/permissions', permissionRoutes);
 
 
 /* ======================

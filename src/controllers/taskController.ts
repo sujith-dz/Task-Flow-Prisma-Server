@@ -2,7 +2,8 @@ import { Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { RequestWithUser, CreateTaskInput, UpdateTaskInput, DragDropTaskInput } from '../types';
 import { AppError, asyncHandler } from '../utils/errorHandler';
-import { Role, TaskStatus, Priority } from '@prisma/client';
+import { TaskStatus, Priority } from '@prisma/client';
+import { userHasPermission } from '../utils/roleHelpers';
 
 export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
   if (!req.user) {
@@ -34,7 +35,10 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
     isDeleted: false, // Exclude deleted tasks by default
   };
 
-  if (req.user.role === Role.ADMIN) {
+  const isAdmin = req.user.roleName === 'ADMIN';
+  const hasViewAllPermission = await userHasPermission(req.user.userId, 'tasks:view');
+
+  if (isAdmin || hasViewAllPermission) {
     // Admins can see all tasks
     if (priorityFilter) {
       whereClause.priority = priorityFilter;
@@ -48,7 +52,9 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
     // Filter by assigner role (ADMIN or USER)
     if (createdByRole) {
       whereClause.assigner = {
-        role: createdByRole,
+        role: {
+          name: createdByRole,
+        },
       };
     }
   } else {
@@ -115,7 +121,13 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
           id: true,
           name: true,
           email: true,
-          role: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+            },
+          },
         },
       },
       assignees: {
@@ -130,13 +142,17 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
         },
       },
       documents: {
-        select: {
-          id: true,
-          fileName: true,
-          fileUrl: true,
-          fileSize: true,
-          mimeType: true,
-          createdAt: true,
+        include: {
+          document: {
+            select: {
+              id: true,
+              fileName: true,
+              fileUrl: true,
+              fileSize: true,
+              mimeType: true,
+              createdAt: true,
+            },
+          },
         },
         orderBy: {
           createdAt: 'desc',
@@ -145,10 +161,18 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
     },
   });
 
-  // Transform tasks to include assignees array in a more convenient format
+  // Transform tasks to include assignees array and documents in a more convenient format
   const transformedTasks = tasks.map((task: any) => ({
     ...task,
     assignees: task.assignees.map((ta: any) => ta.user),
+    documents: task.documents.map((tdm: any) => ({
+      id: tdm.document.id,
+      fileName: tdm.document.fileName,
+      fileUrl: tdm.document.fileUrl,
+      fileSize: tdm.document.fileSize,
+      mimeType: tdm.document.mimeType,
+      createdAt: tdm.document.createdAt,
+    })),
   }));
 
   res.json({
@@ -190,7 +214,13 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
           id: true,
           name: true,
           email: true,
-          role: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+            },
+          },
         },
       },
       assignees: {
@@ -205,13 +235,17 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
         },
       },
       documents: {
-        select: {
-          id: true,
-          fileName: true,
-          fileUrl: true,
-          fileSize: true,
-          mimeType: true,
-          createdAt: true,
+        include: {
+          document: {
+            select: {
+              id: true,
+              fileName: true,
+              fileUrl: true,
+              fileSize: true,
+              mimeType: true,
+              createdAt: true,
+            },
+          },
         },
         orderBy: {
           createdAt: 'desc',
@@ -226,14 +260,25 @@ export const getTaskById = asyncHandler(async (req: RequestWithUser, res: Respon
 
   // Check if user has permission to view this task
   const isAssignee = task.assignees.some((ta: any) => ta.user.id === req.user!.userId);
-  if (req.user!.role !== Role.ADMIN && task.assignerId !== req.user!.userId && !isAssignee) {
+  const isAdmin = req.user!.roleName === 'ADMIN';
+  const hasViewAllPermission = await userHasPermission(req.user!.userId, 'tasks:view');
+  
+  if (!isAdmin && !hasViewAllPermission && task.assignerId !== req.user!.userId && !isAssignee) {
     throw new AppError('You do not have permission to view this task', 403);
   }
 
-  // Transform task to include assignees array
+  // Transform task to include assignees array and documents
   const transformedTask = {
     ...task,
     assignees: task.assignees.map((ta: any) => ta.user),
+    documents: task.documents.map((tdm: any) => ({
+      id: tdm.document.id,
+      fileName: tdm.document.fileName,
+      fileUrl: tdm.document.fileUrl,
+      fileSize: tdm.document.fileSize,
+      mimeType: tdm.document.mimeType,
+      createdAt: tdm.document.createdAt,
+    })),
   };
 
   res.json({
@@ -278,8 +323,11 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
       throw new AppError('One or more assignees not found', 404);
     }
 
-    // Admin can assign to any user, regular users can only assign to themselves
-    if (req.user.role === Role.ADMIN) {
+    // Admin or users with tasks:assign permission can assign to any user, regular users can only assign to themselves
+    const isAdmin = req.user.roleName === 'ADMIN';
+    const hasAssignPermission = await userHasPermission(req.user.userId, 'tasks:assign');
+    
+    if (isAdmin || hasAssignPermission) {
       finalAssigneeIds = assigneeIdsToProcess;
     } else {
       // Regular users can only assign to themselves
@@ -290,7 +338,8 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
     }
   } else {
     // If no assigneeIds provided and user is not admin, assign to themselves
-    if (req.user!.role !== Role.ADMIN) {
+    const isAdmin = req.user!.roleName === 'ADMIN';
+    if (!isAdmin) {
       finalAssigneeIds = [req.user!.userId];
     }
   }
@@ -325,7 +374,13 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
           id: true,
           name: true,
           email: true,
-          role: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+            },
+          },
         },
       },
       assignees: {
@@ -340,13 +395,17 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
         },
       },
       documents: {
-        select: {
-          id: true,
-          fileName: true,
-          fileUrl: true,
-          fileSize: true,
-          mimeType: true,
-          createdAt: true,
+        include: {
+          document: {
+            select: {
+              id: true,
+              fileName: true,
+              fileUrl: true,
+              fileSize: true,
+              mimeType: true,
+              createdAt: true,
+            },
+          },
         },
         orderBy: {
           createdAt: 'desc',
@@ -355,10 +414,18 @@ export const createTask = asyncHandler(async (req: RequestWithUser, res: Respons
     },
   });
 
-  // Transform task to include assignees array
+  // Transform task to include assignees array and documents
   const transformedTask = {
     ...task,
     assignees: task.assignees.map((ta: any) => ta.user),
+    documents: task.documents.map((tdm: any) => ({
+      id: tdm.document.id,
+      fileName: tdm.document.fileName,
+      fileUrl: tdm.document.fileUrl,
+      fileSize: tdm.document.fileSize,
+      mimeType: tdm.document.mimeType,
+      createdAt: tdm.document.createdAt,
+    })),
   };
 
   res.status(201).json({
@@ -398,9 +465,10 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
   // Users can update tasks they created OR tasks assigned to them
   // Admins can update any task
   const isAssignee = task.assignees.some((ta: any) => ta.userId === req.user!.userId);
-  if (req.user!.role !== Role.ADMIN &&
-    task.assignerId !== req.user!.userId &&
-    !isAssignee) {
+  const isAdmin = req.user!.roleName === 'ADMIN';
+  const hasEditAllPermission = await userHasPermission(req.user!.userId, 'tasks:edit');
+  
+  if (!isAdmin && !hasEditAllPermission && task.assignerId !== req.user!.userId && !isAssignee) {
     throw new AppError('You do not have permission to update this task', 403);
   }
 
@@ -423,8 +491,11 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
           throw new AppError('One or more assignees not found', 404);
         }
 
-        // Admin can assign to any user, regular users can only assign to themselves
-        if (req.user.role === Role.ADMIN) {
+        // Admin or users with tasks:assign permission can assign to any user, regular users can only assign to themselves
+        const isAdmin = req.user.roleName === 'ADMIN';
+        const hasAssignPermission = await userHasPermission(req.user.userId, 'tasks:assign');
+        
+        if (isAdmin || hasAssignPermission) {
           // Delete existing assignees and create new ones
           await prisma.taskAssignee.deleteMany({
             where: { taskId: id },
@@ -488,7 +559,13 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
           id: true,
           name: true,
           email: true,
-          role: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+            },
+          },
         },
       },
       assignees: {
@@ -503,13 +580,17 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
         },
       },
       documents: {
-        select: {
-          id: true,
-          fileName: true,
-          fileUrl: true,
-          fileSize: true,
-          mimeType: true,
-          createdAt: true,
+        include: {
+          document: {
+            select: {
+              id: true,
+              fileName: true,
+              fileUrl: true,
+              fileSize: true,
+              mimeType: true,
+              createdAt: true,
+            },
+          },
         },
         orderBy: {
           createdAt: 'desc',
@@ -518,10 +599,18 @@ export const updateTask = asyncHandler(async (req: RequestWithUser, res: Respons
     },
   });
 
-  // Transform task to include assignees array
+  // Transform task to include assignees array and documents
   const transformedTask = {
     ...updatedTask,
     assignees: updatedTask.assignees.map((ta: any) => ta.user),
+    documents: updatedTask.documents.map((tdm: any) => ({
+      id: tdm.document.id,
+      fileName: tdm.document.fileName,
+      fileUrl: tdm.document.fileUrl,
+      fileSize: tdm.document.fileSize,
+      mimeType: tdm.document.mimeType,
+      createdAt: tdm.document.createdAt,
+    })),
   };
 
   res.json({
@@ -569,7 +658,9 @@ export const updateTaskDragDrop = asyncHandler(async (req: RequestWithUser, res:
 
   // Check if user has permission to update this task
   const isAssignee = task.assignees.some((ta: any) => ta.userId === req.user!.userId);
-  const canUpdate = req.user!.role === Role.ADMIN || task.assignerId === req.user!.userId || isAssignee;
+  const isAdmin = req.user!.roleName === 'ADMIN';
+  const hasEditAllPermission = await userHasPermission(req.user!.userId, 'tasks:edit');
+  const canUpdate = isAdmin || hasEditAllPermission || task.assignerId === req.user!.userId || isAssignee;
   
   if (!canUpdate) {
     throw new AppError('You do not have permission to update this task', 403);
@@ -581,9 +672,12 @@ export const updateTaskDragDrop = asyncHandler(async (req: RequestWithUser, res:
 
   // Handle assigneeIds update if provided (for reassignment)
   if (assigneeIds !== undefined) {
-    // Only admins can reassign tasks via drag-and-drop
-    if (req.user.role !== Role.ADMIN) {
-      throw new AppError('Only admins can reassign tasks', 403);
+    // Only admins or users with tasks:assign permission can reassign tasks via drag-and-drop
+    const isAdmin = req.user.roleName === 'ADMIN';
+    const hasAssignPermission = await userHasPermission(req.user.userId, 'tasks:assign');
+    
+    if (!isAdmin && !hasAssignPermission) {
+      throw new AppError('Only admins or users with assign permission can reassign tasks', 403);
     }
 
     if (assigneeIds.length > 0) {
@@ -622,7 +716,13 @@ export const updateTaskDragDrop = asyncHandler(async (req: RequestWithUser, res:
           id: true,
           name: true,
           email: true,
-          role: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+            },
+          },
         },
       },
       assignees: {
@@ -671,7 +771,10 @@ export const deleteTask = asyncHandler(async (req: RequestWithUser, res: Respons
   }
 
   // Check if user has permission to delete this task (only assigner or admin)
-  if (req.user.role !== Role.ADMIN && task.assignerId !== req.user.userId) {
+  const isAdmin = req.user.roleName === 'ADMIN';
+  const hasDeleteAllPermission = await userHasPermission(req.user.userId, 'tasks:delete');
+  
+  if (!isAdmin && !hasDeleteAllPermission && task.assignerId !== req.user.userId) {
     throw new AppError('You do not have permission to delete this task', 403);
   }
 
