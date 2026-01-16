@@ -4,6 +4,7 @@ import { PasswordService } from '../services/passwordService';
 import { AuthService } from '../services/authService';
 import { RegisterInput, LoginInput } from '../types';
 import { AppError, asyncHandler } from '../utils/errorHandler';
+import { getRoleByName } from '../utils/roleHelpers';
 
 /**
  * Admin Signup
@@ -25,20 +26,32 @@ export const adminSignup = asyncHandler(async (req: Request, res: Response, next
   }
 
   const hashedPassword = await PasswordService.hashPassword(password);
+  const adminRole = await getRoleByName('ADMIN');
+  
+  if (!adminRole) {
+    throw new AppError('Admin role not found in database', 500);
+  }
 
   const user = await prisma.user.create({
     data: {
       email,
       password: hashedPassword,
       name,
-      role: 'ADMIN',
+      roleId: adminRole.id,
     },
     select: {
       id: true,
       email: true,
       name: true,
       imageUrl: true,
-      role: true,
+      roleId: true,
+      role: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+        },
+      },
       createdAt: true,
     },
   });
@@ -46,14 +59,22 @@ export const adminSignup = asyncHandler(async (req: Request, res: Response, next
   const token = AuthService.generateToken({
     userId: user.id,
     email: user.email,
-    role: user.role,
+    roleId: user.roleId,
+    roleName: user.role.name,
   });
 
   res.status(201).json({
     success: true,
     message: 'Admin registered successfully',
     data: {
-      user,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        imageUrl: user.imageUrl,
+        role: user.role.name,
+        createdAt: user.createdAt,
+      },
       token,
     },
   });
@@ -72,6 +93,15 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response, next:
 
   const user = await prisma.user.findUnique({
     where: { email },
+    include: {
+      role: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+        },
+      },
+    },
   });
 
   if (!user) {
@@ -79,7 +109,7 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response, next:
   }
 
   // Check if user has ADMIN role
-  if (user.role !== 'ADMIN') {
+  if (user.role.name !== 'ADMIN') {
     throw new AppError('Access denied. Admin role required', 403);
   }
 
@@ -96,7 +126,8 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response, next:
   const token = AuthService.generateToken({
     userId: user.id,
     email: user.email,
-    role: user.role,
+    roleId: user.roleId,
+    roleName: user.role.name,
   });
 
   res.json({
@@ -108,7 +139,7 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response, next:
         email: user.email,
         name: user.name,
         imageUrl: user.imageUrl,
-        role: user.role,
+        role: user.role.name,
       },
       token,
     },

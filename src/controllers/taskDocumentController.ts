@@ -47,7 +47,7 @@ export const uploadTaskDocument = asyncHandler(
 
     const isAssigner = task.assignerId === req.user.userId;
     const isAssignee = task.assignees.some((ta) => ta.userId === req.user!.userId);
-    const isAdmin = req.user.role === 'ADMIN';
+    const isAdmin = req.user.roleName === 'ADMIN';
     if (!isAssigner && !isAssignee && !isAdmin) {
       throw new AppError(
         'You do not have permission to upload documents for this task',
@@ -114,25 +114,33 @@ export const uploadTaskDocument = asyncHandler(
       if (result.status === 'fulfilled' && result.value.success) {
         const { file, result: cloudinaryResult } = result.value;
         try {
-          const document = await prisma.taskDocument.create({
+          // Create document first
+          const document = await prisma.document.create({
             data: {
-              taskId,
               fileName: file.originalname,
               fileUrl: cloudinaryResult.secure_url,
               fileSize: file.size,
               mimeType: file.mimetype,
               uploadedBy: req.user.userId,
             },
-            select: {
-              id: true,
-              fileName: true,
-              fileUrl: true,
-              fileSize: true,
-              mimeType: true,
-              createdAt: true,
+          });
+
+          // Create task-document mapping
+          await prisma.taskDocumentMapping.create({
+            data: {
+              taskId,
+              documentId: document.id,
             },
           });
-          successfulUploads.push(document);
+
+          successfulUploads.push({
+            id: document.id,
+            fileName: document.fileName,
+            fileUrl: document.fileUrl,
+            fileSize: document.fileSize,
+            mimeType: document.mimeType,
+            createdAt: document.createdAt,
+          });
         } catch (dbError) {
           console.error(
             `Error saving document ${file.originalname} to database:`,
@@ -179,9 +187,11 @@ export const deleteTaskDocument = asyncHandler(
 
     const { documentId } = req.params;
 
-    const document = await prisma.taskDocument.findUnique({
-      where: { id: documentId },
+    // Find the document and its task mapping
+    const taskDocumentMapping = await prisma.taskDocumentMapping.findFirst({
+      where: { documentId },
       include: {
+        document: true,
         task: {
           select: {
             id: true,
@@ -192,15 +202,16 @@ export const deleteTaskDocument = asyncHandler(
       },
     });
 
-    if (!document) {
+    if (!taskDocumentMapping) {
       throw new AppError('Document not found', 404);
     }
 
-    const isAssigner = document.task.assignerId === req.user.userId;
-    const isAssignee = document.task.assignees.some(
+    const document = taskDocumentMapping.document;
+    const isAssigner = taskDocumentMapping.task.assignerId === req.user.userId;
+    const isAssignee = taskDocumentMapping.task.assignees.some(
       (ta) => ta.userId === req.user!.userId
     );
-    const isAdmin = req.user.role === 'ADMIN';
+    const isAdmin = req.user.roleName === 'ADMIN';
     const isUploader = document.uploadedBy === req.user.userId;
 
     if (!isAssigner && !isAssignee && !isAdmin && !isUploader) {
@@ -237,7 +248,15 @@ export const deleteTaskDocument = asyncHandler(
       console.warn('Error deleting document from Cloudinary:', error.message);
     }
 
-    await prisma.taskDocument.delete({ where: { id: documentId } });
+    // Delete task-document mapping first (cascade will handle document deletion if needed)
+    await prisma.taskDocumentMapping.deleteMany({
+      where: { documentId },
+    });
+
+    // Delete the document
+    await prisma.document.delete({
+      where: { id: documentId },
+    });
 
     res.json({
       success: true,
@@ -254,9 +273,11 @@ export const downloadTaskDocument = asyncHandler(
 
     const { documentId } = req.params;
 
-    const document = await prisma.taskDocument.findUnique({
-      where: { id: documentId },
+    // Find the document and its task mapping
+    const taskDocumentMapping = await prisma.taskDocumentMapping.findFirst({
+      where: { documentId },
       include: {
+        document: true,
         task: {
           select: {
             id: true,
@@ -267,16 +288,17 @@ export const downloadTaskDocument = asyncHandler(
       },
     });
 
-    if (!document) {
+    if (!taskDocumentMapping) {
       throw new AppError('Document not found', 404);
     }
 
+    const document = taskDocumentMapping.document;
     // Check permissions
-    const isAssigner = document.task.assignerId === req.user.userId;
-    const isAssignee = document.task.assignees.some(
+    const isAssigner = taskDocumentMapping.task.assignerId === req.user.userId;
+    const isAssignee = taskDocumentMapping.task.assignees.some(
       (ta) => ta.userId === req.user!.userId
     );
-    const isAdmin = req.user.role === 'ADMIN';
+    const isAdmin = req.user.roleName === 'ADMIN';
 
     if (!isAssigner && !isAssignee && !isAdmin) {
       throw new AppError(

@@ -1,10 +1,11 @@
 import { Request } from 'express';
-import { Role, TaskStatus, Priority } from '@prisma/client';
+import { TaskStatus, Priority, Role, Permission } from '@prisma/client';
 
 export interface JWTPayload {
   userId: string;
   email: string;
-  role: Role;
+  roleId: string;
+  roleName?: string;  // Optional: include role name for convenience
 }
 
 export interface RequestWithUser extends Request {
@@ -57,7 +58,34 @@ export interface BulkUserInput {
   email: string;
   password: string;
   name: string;
-  role?: Role;
+  roleId?: string;  // Changed from role to roleId
   isActive?: boolean;
+}
+
+// New interfaces for role management
+export interface CreateRoleInput {
+  name: string;
+  displayName: string;
+  description?: string;
+  permissionIds?: string[];
+}
+
+export interface UpdateRoleInput {
+  name?: string;
+  displayName?: string;
+  description?: string;
+  isActive?: boolean;
+  permissionIds?: string[];
+}
+
+export interface CreatePermissionInput {
+  name: string;
+  displayName: string;
+  description?: string;
+  category: string;
+}
+
+export interface RoleWithPermissions extends Role {
+  permissions: Permission[];
 }
 

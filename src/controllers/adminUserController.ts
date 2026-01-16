@@ -2,8 +2,8 @@ import { Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { RequestWithUser, UpdateUserInput, BulkUserInput } from '../types';
 import { AppError, asyncHandler } from '../utils/errorHandler';
-import { Role } from '@prisma/client';
 import { PasswordService } from '../services/passwordService';
+import { getRoleByName, getDefaultRoleId } from '../utils/roleHelpers';
 
 export const getAllUsers = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
   const users = await prisma.user.findMany({
@@ -12,7 +12,14 @@ export const getAllUsers = asyncHandler(async (req: RequestWithUser, res: Respon
       email: true,
       name: true,
       imageUrl: true,
-      role: true,
+      roleId: true,
+      role: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+        },
+      },
       isActive: true,
       createdAt: true,
       updatedAt: true,
@@ -22,9 +29,15 @@ export const getAllUsers = asyncHandler(async (req: RequestWithUser, res: Respon
     },
   });
 
+  // Transform to include role name for backward compatibility
+  const transformedUsers = users.map(user => ({
+    ...user,
+    role: user.role.name,
+  }));
+
   res.json({
     success: true,
-    data: users,
+    data: transformedUsers,
   });
 });
 
@@ -38,7 +51,14 @@ export const getUserById = asyncHandler(async (req: RequestWithUser, res: Respon
       email: true,
       name: true,
       imageUrl: true,
-      role: true,
+      roleId: true,
+      role: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+        },
+      },
       isActive: true,
       createdAt: true,
       updatedAt: true,
@@ -49,15 +69,19 @@ export const getUserById = asyncHandler(async (req: RequestWithUser, res: Respon
     throw new AppError('User not found', 404);
   }
 
+  // Transform to include role name for backward compatibility
   res.json({
     success: true,
-    data: user,
+    data: {
+      ...user,
+      role: user.role.name,
+    },
   });
 });
 
 export const updateUser = asyncHandler(async (req: RequestWithUser, res: Response, next: NextFunction) => {
   const { id } = req.params;
-  const { name, email, password, role }: UpdateUserInput & { role?: Role } = req.body;
+  const { name, email, password, roleId }: UpdateUserInput & { roleId?: string } = req.body;
 
   const user = await prisma.user.findUnique({
     where: { id },
@@ -84,8 +108,15 @@ export const updateUser = asyncHandler(async (req: RequestWithUser, res: Respons
   if (password !== undefined && password !== null && password.trim() !== '') {
     updateData.password = await PasswordService.hashPassword(password);
   }
-  if (role && Object.values(Role).includes(role)) {
-    updateData.role = role;
+  if (roleId) {
+    // Verify role exists
+    const role = await prisma.role.findUnique({
+      where: { id: roleId },
+    });
+    if (!role) {
+      throw new AppError('Invalid role ID', 400);
+    }
+    updateData.roleId = roleId;
   }
   if (req.body.isActive !== undefined) {
     updateData.isActive = req.body.isActive;
@@ -104,7 +135,14 @@ export const updateUser = asyncHandler(async (req: RequestWithUser, res: Respons
       email: true,
       name: true,
       imageUrl: true,
-      role: true,
+      roleId: true,
+      role: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+        },
+      },
       isActive: true,
       createdAt: true,
       updatedAt: true,
@@ -114,7 +152,10 @@ export const updateUser = asyncHandler(async (req: RequestWithUser, res: Respons
   res.json({
     success: true,
     message: 'User updated successfully',
-    data: updatedUser,
+    data: {
+      ...updatedUser,
+      role: updatedUser.role.name,
+    },
   });
 });
 
@@ -166,7 +207,13 @@ export const activateUser = asyncHandler(async (req: RequestWithUser, res: Respo
       email: true,
       name: true,
       imageUrl: true,
-      role: true,
+      role: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+        },
+      },
       isActive: true,
       createdAt: true,
       updatedAt: true,
@@ -203,7 +250,13 @@ export const deactivateUser = asyncHandler(async (req: RequestWithUser, res: Res
       email: true,
       name: true,
       imageUrl: true,
-      role: true,
+      role: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+        },
+      },
       isActive: true,
       createdAt: true,
       updatedAt: true,
@@ -293,13 +346,23 @@ export const createBulkUsers = asyncHandler(async (req: RequestWithUser, res: Re
         continue;
       }
 
-      // Validate role if provided
-      if (userInput.role && !Object.values(Role).includes(userInput.role)) {
-        results.failed.push({
-          email: userInput.email,
-          error: `Invalid role: ${userInput.role}. Must be USER or ADMIN`,
+      // Get roleId - use provided roleId or role name, or default to USER
+      let finalRoleId: string;
+      if (userInput.roleId) {
+        const role = await prisma.role.findUnique({
+          where: { id: userInput.roleId },
         });
-        continue;
+        if (!role) {
+          results.failed.push({
+            email: userInput.email,
+            error: `Invalid role ID: ${userInput.roleId}`,
+          });
+          continue;
+        }
+        finalRoleId = role.id;
+      } else {
+        // Default to USER role
+        finalRoleId = await getDefaultRoleId();
       }
 
       // Hash password
@@ -311,14 +374,20 @@ export const createBulkUsers = asyncHandler(async (req: RequestWithUser, res: Re
           email: userInput.email,
           password: hashedPassword,
           name: userInput.name,
-          role: userInput.role || Role.USER,
+          roleId: finalRoleId,
           isActive: userInput.isActive !== undefined ? userInput.isActive : true,
         },
         select: {
           id: true,
           email: true,
           name: true,
-          role: true,
+          role: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+        },
+      },
           isActive: true,
           createdAt: true,
         },
