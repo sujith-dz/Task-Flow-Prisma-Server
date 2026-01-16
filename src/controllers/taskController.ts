@@ -47,7 +47,16 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
       whereClause.status = statusFilter;
     }
     if (assignerIdFilter) {
-      whereClause.assignerId = assignerIdFilter;
+      // Check if it's a special "ADMIN_ROLE" filter
+      if (assignerIdFilter === 'ADMIN_ROLE') {
+        whereClause.assigner = {
+          role: {
+            name: 'ADMIN',
+          },
+        };
+      } else {
+        whereClause.assignerId = assignerIdFilter;
+      }
     }
     // Filter by assigner role (ADMIN or USER)
     if (createdByRole) {
@@ -75,8 +84,19 @@ export const getAllTasks = asyncHandler(async (req: RequestWithUser, res: Respon
       whereClause.AND.push({ status: statusFilter });
     }
     if (assignerIdFilter) {
-      // For users, only allow filtering by their own assignerId or tasks assigned to them
-      whereClause.AND.push({ assignerId: assignerIdFilter });
+      // Check if it's a special "ADMIN_ROLE" filter
+      if (assignerIdFilter === 'ADMIN_ROLE') {
+        whereClause.AND.push({
+          assigner: {
+            role: {
+              name: 'ADMIN',
+            },
+          },
+        });
+      } else {
+        // For users, only allow filtering by their own assignerId or tasks assigned to them
+        whereClause.AND.push({ assignerId: assignerIdFilter });
+      }
     }
   }
 
