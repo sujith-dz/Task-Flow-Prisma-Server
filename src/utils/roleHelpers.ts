@@ -71,7 +71,7 @@ export async function userHasAnyPermission(
 
   if (!user?.role || !user.role.isActive) return false;
 
-  console.log(user.role.permissions, '.....................user.role.permissions');
+  // console.log(user.role.permissions, '.....................user.role.permissions');
 
   return user.role.permissions.some(
     (rp) => permissionNames.includes(rp.permission.name) && rp.permission.isActive

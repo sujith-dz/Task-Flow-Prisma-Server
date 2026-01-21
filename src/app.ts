@@ -29,7 +29,6 @@ app.use(express.urlencoded({ extended: true }));
 // Build allowed origins array - CLIENT_URL is optional
 const allowedOrigins: string[] = [
   'http://localhost:5173',
-  'https://taskflawappnow.netlify.app',
   process.env.CLIENT_URL,
 ].filter((origin): origin is string => Boolean(origin));
 
@@ -39,6 +38,15 @@ if (process.env.NODE_ENV !== 'production') {
   console.log('CLIENT_URL:', process.env.CLIENT_URL || '(not set)');
   console.log('Allowed origins:', allowedOrigins);
 }
+
+app.use((req, res, next) => {
+  console.log('--- Incoming Request ---');
+  console.log('Origin:', req.headers.origin || 'No Origin');
+  console.log('IP:', req.ip);
+  console.log('------------------------');
+  next();
+});
+
 
 app.use(
   cors({
